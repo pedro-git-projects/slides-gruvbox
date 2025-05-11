@@ -55,54 +55,51 @@ func JoinVertical(top, bottom string, height int) string {
 	return lipgloss.PlaceVertical(h, lipgloss.Top, top) + bottom
 }
 
-// SelectTheme picks a glamour style config based
-// on the theme provided in the markdown header
+// SelectTheme picks a glamour style or JSON file and always enables syntax highlighting.
 func SelectTheme(theme string) glamour.TermRendererOption {
-	switch theme {
-	case "ascii":
-		return glamour.WithStyles(glamour.ASCIIStyleConfig)
-	case "light":
-		return glamour.WithStyles(glamour.LightStyleConfig)
-	case "dark":
-		return glamour.WithStyles(glamour.DarkStyleConfig)
-	case "notty":
-		return glamour.WithStyles(glamour.NoTTYStyleConfig)
+	var opt glamour.TermRendererOption
+
+	switch {
+	case theme == "ascii" || theme == "light" || theme == "dark" || theme == "notty" || theme == "pink" || theme == "dracula" || theme == "tokyo-night":
+		opt = glamour.WithStandardStyle(theme)
+	case strings.HasPrefix(theme, "http://") || strings.HasPrefix(theme, "https://"):
+		resp, err := http.Get(theme)
+		if err != nil {
+			return getDefaultTheme()
+		}
+		defer resp.Body.Close()
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return getDefaultTheme()
+		}
+		opt = glamour.WithStylesFromJSONBytes(b)
 	default:
-		var themeReader io.Reader
-		var err error
-		if strings.HasPrefix(theme, "http") {
-			var resp *http.Response
-			resp, err = http.Get(theme)
-			if err != nil {
-				return getDefaultTheme()
-			}
-			defer resp.Body.Close()
-			themeReader = resp.Body
+		if _, err := os.Stat(theme); err == nil {
+			opt = glamour.WithStylesFromJSONFile(theme)
 		} else {
-			file, err := os.Open(theme)
-			if err != nil {
-				return getDefaultTheme()
-			}
-			defer file.Close()
-			themeReader = file
+			opt = glamour.WithStylesFromJSONBytes(DefaultTheme)
 		}
-		bytes, err := io.ReadAll(themeReader)
-		if err == nil {
-			return glamour.WithStylesFromJSONBytes(bytes)
-		}
-		// Should log a warning so the user knows we failed to read their theme file
-		return getDefaultTheme()
 	}
+
+	// Enable Chroma syntax highlighting
+	return glamour.WithOptions(
+		opt,
+		glamour.WithChromaFormatter("terminal256"),
+	)
 }
 
 func getDefaultTheme() glamour.TermRendererOption {
 	if termenv.EnvNoColor() {
-		return glamour.WithStyles(glamour.NoTTYStyleConfig)
+		return glamour.WithStandardStyle("notty")
 	}
-
 	if !termenv.HasDarkBackground() {
-		return glamour.WithStyles(glamour.LightStyleConfig)
+		return glamour.WithOptions(
+			glamour.WithStandardStyle("light"),
+			glamour.WithChromaFormatter("terminal256"),
+		)
 	}
-
-	return glamour.WithStylesFromJSONBytes(DefaultTheme)
+	return glamour.WithOptions(
+		glamour.WithStylesFromJSONBytes(DefaultTheme),
+		glamour.WithChromaFormatter("terminal256"),
+	)
 }
